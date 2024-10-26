@@ -2,33 +2,43 @@ import { Rola, type SignedChallenge } from "@radixdlt/rola";
 import { ResultAsync } from "neverthrow";
 import { corsHeaders } from "./utils";
 import { secureRandom } from ".";
-import { RolaUser } from "./storage";
+import { Challenges, RolaUser } from "./storage";
 import {
   createDiscourseUser,
   getDiscourseEmailByUsername,
   getDiscourseUserByUsername,
 } from "./api";
-import type { Model } from "sequelize";
-
-const challenges = new Map<string, { expires: number }>();
+import { Op, type Model } from "sequelize";
 
 // A simple in-memory store for challenges. A database should be used in production.
 const ChallengeStore = () => {
-  const create = () => {
+  const create = async () => {
     const challenge = secureRandom(32); // 32 random bytes as hex string
-    const expires = Date.now() + 1000 * 60 * 5; // expires in 5 minutes
-    challenges.set(challenge, { expires }); // store challenge with expiration
+    const expires = Date.now() + 1000 * 60 * 2; // expires in 5 minutes
+
+    await Challenges.destroy({
+      where: { expiry: { [Op.lt]: Date.now() } },
+    });
+
+    await Challenges.build({ challenge, expiry: expires }).save();
 
     return challenge;
   };
 
-  const verify = (input: string) => {
-    const challenge = challenges.get(input);
+  const verify = async (input: string) => {
+    const challenge = await Challenges.findOne({
+      where: { challenge: input },
+    }).catch(() => null);
 
     if (!challenge) return false;
 
-    challenges.delete(input); // remove challenge after it has been used
-    const isValid = challenge.expires > Date.now(); // check if challenge has expired
+    await Challenges.destroy({
+      where: { challenge: input },
+    });
+
+    const isValid =
+      challenge instanceof Challenges &&
+      challenge?.dataValues.expiry > Date.now(); // check if challenge has expired
 
     return isValid;
   };
@@ -56,9 +66,12 @@ export const handleVerify = async (req: Request) => {
       .reduce((acc, curr) => acc.add(curr.challenge), new Set<string>())
       .values(),
   ];
-  const isChallengeValid = challenges.every((challenge) =>
-    challengeStore.verify(challenge),
-  );
+
+  const isChallengeValid = (
+    await Promise.all(
+      challenges.map((challenge) => challengeStore.verify(challenge)),
+    )
+  ).some((v) => v);
 
   if (!isChallengeValid)
     return new Response(null, { status: 400, headers: { ...corsHeaders() } });

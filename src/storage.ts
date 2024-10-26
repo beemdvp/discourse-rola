@@ -8,4 +8,9 @@ export const RolaUser = sequelize.define("RolaUser", {
   password: DataTypes.STRING,
 });
 
+export const Challenges = sequelize.define("RolaChallenges", {
+  challenge: DataTypes.STRING,
+  expiry: DataTypes.DATE,
+});
+
 await sequelize.sync();

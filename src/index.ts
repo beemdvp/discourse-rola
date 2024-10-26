@@ -13,11 +13,14 @@ console.log("using rola config", {
   expectedOrigin: process.env.ROLA_EXPECTED_ORIGIN!, // origin of the client making the wallet request
 });
 
-function handleCreateChallenge(): Response {
-  return new Response(JSON.stringify({ challenge: challengeStore.create() }), {
-    status: 200,
-    headers: { "Content-Type": "application/json", ...corsHeaders() },
-  });
+async function handleCreateChallenge(): Promise<Response> {
+  return new Response(
+    JSON.stringify({ challenge: await challengeStore.create() }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders() },
+    },
+  );
 }
 
 const port = 4000;
@@ -34,7 +37,7 @@ serve({
     }
 
     if (path === "/create-challenge" && method === "GET") {
-      return handleCreateChallenge();
+      return await handleCreateChallenge();
     }
 
     if (path === "/verify" && method === "POST") {

@@ -20,8 +20,10 @@ function handleCreateChallenge(): Response {
   });
 }
 
+const port = 4000;
+
 serve({
-  port: 3003,
+  port,
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
@@ -46,4 +48,4 @@ serve({
   },
 });
 
-console.log("Server running on port 3003");
+console.log(`Server running on port ${port}`);

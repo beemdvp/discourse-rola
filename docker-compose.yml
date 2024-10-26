@@ -7,3 +7,17 @@ services:
       - POSTGRES_PASSWORD=password
     ports:
       - '5432:5432'
+  app:
+    image: beemdvpp/discourse-rola
+    environment:
+      - DISCOURSE_API_URL=
+      - DISCOURSE_USERNAME=
+      - DISCOURSE_API_KEY=
+      - DATABASE_URL=
+      - DAPP_DEFINITION_ADDRESS=
+      - ROLA_EXPECTED_ORIGIN=
+      - APPLICATION_NAME=
+      - APPLICATION_VERSION=
+      - NETWORK_ID=
+    ports:
+      - '4000:4000'

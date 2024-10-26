@@ -7,3 +7,5 @@ export const RolaUser = sequelize.define("RolaUser", {
   username: DataTypes.STRING,
   password: DataTypes.STRING,
 });
+
+await sequelize.sync();

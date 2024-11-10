@@ -5,8 +5,13 @@ import { secureRandom } from ".";
 import { Challenges, RolaUser } from "./storage";
 import {
   createDiscourseUser,
+  deleteDiscourseUser,
   getDiscourseEmailByUsername,
+  getDiscourseUserById,
   getDiscourseUserByUsername,
+  logoutUserById,
+  storeUserCredentials,
+  updateDiscourseUserPassword,
 } from "./api";
 import { Op, type Model } from "sequelize";
 
@@ -40,6 +45,7 @@ const ChallengeStore = () => {
       challenge instanceof Challenges &&
       challenge?.dataValues.expiry > Date.now(); // check if challenge has expired
 
+    console.log("Challenge verified:", isValid);
     return isValid;
   };
 
@@ -55,10 +61,41 @@ const { verifySignedChallenge } = Rola({
   expectedOrigin: process.env.ROLA_EXPECTED_ORIGIN!, // origin of the client making the wallet request
 });
 
+export async function isRequestAuthorized(
+  request: Request,
+  migrationAuth: { id: string; clientId: string; csrfToken: string },
+) {
+  return fetch(`${process.env.DISCOURSE_API_URL}/presence/update`, {
+    headers: {
+      accept: "*/*",
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "discourse-logged-in": "true",
+      "discourse-present": "true",
+      "x-csrf-token": migrationAuth.csrfToken,
+      "x-requested-with": "XMLHttpRequest",
+      cookie: request.headers.get("cookie") || "",
+    },
+    body: `client_id=${migrationAuth.clientId}&present_channels%5B%5D=%2Fchat-user%2Fcore%2F${migrationAuth.id}`,
+    method: "POST",
+  })
+    .then((r) => r.json())
+    .then((r) => r[`/chat-user/core/${migrationAuth.id}`])
+    .catch((e) => {
+      console.log("verify migration failed ", e);
+      return false;
+    });
+}
+
 export const handleVerify = async (req: Request) => {
   const body = (await req.json()) as {
     proofs: SignedChallenge[];
     personaData: { fields: Record<string, string> | string[] }[];
+    migrationAuth?: {
+      id: string;
+      clientId: string;
+      csrfToken: string;
+      token: string;
+    };
   };
 
   const challenges = [
@@ -83,10 +120,88 @@ export const handleVerify = async (req: Request) => {
   );
 
   if (result.isErr()) {
+    console.log("Error verifying challenges", result.error);
     return new Response(null, {
       status: 401,
       headers: { "Content-Type": "application/json", ...corsHeaders() },
     });
+  }
+
+  if (body.migrationAuth) {
+    const isMigrationAuthorized = await isRequestAuthorized(
+      req,
+      body.migrationAuth,
+    );
+
+    console.log("migration auth success");
+
+    if (!isMigrationAuthorized) {
+      return new Response(null, {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
+      });
+    }
+
+    const user = await getDiscourseUserById({ id: body.migrationAuth.id });
+
+    if (!user) {
+      return new Response(null, {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
+      });
+    }
+
+    const password = secureRandom(32);
+
+    const { nickname: username } = body.personaData[0].fields as {
+      nickname: string;
+      givenNames: string;
+      familyName: string;
+    };
+
+    if (user.username != username) {
+      return new Response(null, {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
+      });
+    }
+
+    const savedUser = await storeUserCredentials(body, username, password);
+
+    if (!savedUser) {
+      return new Response(null, {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
+      });
+    }
+
+    await fetch(`/radix-connect/update-user`, {
+      method: "POST",
+      body: JSON.stringify({
+        password,
+      }),
+      headers: {
+        "content-type": "application/json",
+        "X-CSRF-Token": body.migrationAuth.csrfToken,
+      },
+      credentials: "include",
+    }).catch(() => null);
+
+    await logoutUserById({
+      id: body.migrationAuth.id,
+      username: user.username,
+    });
+
+    return new Response(
+      JSON.stringify({
+        valid: true,
+        rolaPassword: password,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders() },
+      },
+    );
   }
 
   const userFound = await RolaUser.findOne({
@@ -137,33 +252,13 @@ async function getOrCreateUser(
   const [email] = body.personaData[1].fields as string[];
 
   if (!userFound) {
-    const password = secureRandom(16);
-
-    const createdUserResponse = await createDiscourseUser({
+    return await createNewUser({
+      body,
       email,
       username,
       firstName,
       lastName,
-      password,
     });
-
-    if (!createdUserResponse || !createdUserResponse.success) {
-      return null;
-    }
-
-    const user = RolaUser.build({
-      identity_address: body.proofs[0].address,
-      username,
-      password,
-    });
-
-    const savedUser = await user.save().catch(() => null);
-
-    if (!savedUser) {
-      return null;
-    }
-
-    return { username, password };
   } else {
     if (userFound instanceof RolaUser) {
       const { username, password } = userFound.dataValues;
@@ -188,4 +283,43 @@ async function getOrCreateUser(
     }
     return null;
   }
+}
+
+export async function createNewUser({
+  body,
+  email,
+  username,
+  firstName,
+  lastName,
+}: {
+  body: {
+    proofs: SignedChallenge[];
+    personaData: { fields: Record<string, string> | string[] }[];
+  };
+  email: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+}) {
+  const password = secureRandom(16);
+
+  const createdUserResponse = await createDiscourseUser({
+    email,
+    username,
+    firstName,
+    lastName,
+    password,
+  });
+
+  if (!createdUserResponse || !createdUserResponse.success) {
+    return null;
+  }
+
+  const savedUser = await storeUserCredentials(body, username, password);
+
+  if (!savedUser) {
+    return null;
+  }
+
+  return { username, password };
 }

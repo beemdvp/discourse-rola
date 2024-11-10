@@ -2,6 +2,7 @@ import { serve } from "bun";
 import crypto from "node:crypto";
 import { challengeStore, handleVerify } from "./verify";
 import { corsHeaders } from "./utils";
+import { handlePasswordReset } from "./password-verify";
 
 export const secureRandom = (byteCount: number): string =>
   crypto.randomBytes(byteCount).toString("hex");

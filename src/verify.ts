@@ -5,15 +5,14 @@ import { secureRandom } from ".";
 import { Challenges, RolaUser } from "./storage";
 import {
   createDiscourseUser,
-  deleteDiscourseUser,
   getDiscourseEmailByUsername,
   getDiscourseUserById,
   getDiscourseUserByUsername,
   logoutUserById,
   storeUserCredentials,
-  updateDiscourseUserPassword,
 } from "./api";
 import { Op, type Model } from "sequelize";
+import { decryptData, encryptData } from "./password-verify";
 
 // A simple in-memory store for challenges. A database should be used in production.
 const ChallengeStore = () => {
@@ -90,6 +89,7 @@ export const handleVerify = async (req: Request) => {
   const body = (await req.json()) as {
     proofs: SignedChallenge[];
     personaData: { fields: Record<string, string> | string[] }[];
+    persona: { identity_address: string; label: string };
     migrationAuth?: {
       id: string;
       clientId: string;
@@ -151,13 +151,9 @@ export const handleVerify = async (req: Request) => {
       });
     }
 
-    const password = secureRandom(32);
+    const password = secureRandom(16);
 
-    const { nickname: username } = body.personaData[0].fields as {
-      nickname: string;
-      givenNames: string;
-      familyName: string;
-    };
+    const username = body.persona.label.replace(/"/g, "");
 
     if (user.username != username) {
       return new Response(null, {
@@ -166,7 +162,35 @@ export const handleVerify = async (req: Request) => {
       });
     }
 
-    const savedUser = await storeUserCredentials(body, username, password);
+    const [email] = body.personaData[0].fields as string[];
+
+    const userFound = await RolaUser.findOne({
+      attributes: ["password", "username"],
+      where: { identity_address: body.proofs[0].address },
+    });
+
+    if (userFound instanceof RolaUser) {
+      const { username, password } = userFound.dataValues;
+
+      return new Response(
+        JSON.stringify({
+          valid: true,
+          email,
+          username,
+          rolaPassword: decryptData(password),
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders() },
+        },
+      );
+    }
+
+    const savedUser = await storeUserCredentials(
+      body,
+      username,
+      encryptData(password),
+    );
 
     if (!savedUser) {
       return new Response(null, {
@@ -175,27 +199,12 @@ export const handleVerify = async (req: Request) => {
       });
     }
 
-    await fetch(`/radix-connect/update-user`, {
-      method: "POST",
-      body: JSON.stringify({
-        password,
-      }),
-      headers: {
-        "content-type": "application/json",
-        "X-CSRF-Token": body.migrationAuth.csrfToken,
-      },
-      credentials: "include",
-    }).catch(() => null);
-
-    await logoutUserById({
-      id: body.migrationAuth.id,
-      username: user.username,
-    });
-
     return new Response(
       JSON.stringify({
         valid: true,
         rolaPassword: password,
+        username,
+        email,
       }),
       {
         status: 200,
@@ -236,37 +245,35 @@ async function getOrCreateUser(
   body: {
     proofs: SignedChallenge[];
     personaData: { fields: Record<string, string> | string[] }[];
+    persona: { identity_address: string; label: string };
   },
   userFound: Model<any, any> | null,
 ): Promise<{ username: string; password: string } | null | undefined> {
-  const {
-    nickname: username,
-    givenNames: firstName,
-    familyName: lastName,
-  } = body.personaData[0].fields as {
-    nickname: string;
-    givenNames: string;
-    familyName: string;
-  };
+  const [email] = body.personaData[0].fields as string[];
+  const username = body.persona.label.replace(/"/g, "");
 
-  const [email] = body.personaData[1].fields as string[];
+  const [usernameValid, emailValid] = await Promise.allSettled([
+    getDiscourseUserByUsername({ username }),
+    getDiscourseEmailByUsername({ username }),
+  ]);
 
-  if (!userFound) {
+  if (
+    !userFound ||
+    (usernameValid.status === "fulfilled" &&
+      usernameValid.value?.error_type === "not_found" &&
+      emailValid.status === "fulfilled" &&
+      emailValid.value?.error_type === "not_found")
+  ) {
     return await createNewUser({
       body,
       email,
       username,
-      firstName,
-      lastName,
+      firstName: "",
+      lastName: "",
     });
   } else {
     if (userFound instanceof RolaUser) {
       const { username, password } = userFound.dataValues;
-
-      const [usernameValid, emailValid] = await Promise.allSettled([
-        getDiscourseUserByUsername({ username }),
-        getDiscourseEmailByUsername({ username }),
-      ]);
 
       if (
         usernameValid.status === "rejected" ||
@@ -279,7 +286,9 @@ async function getOrCreateUser(
         usernameValid?.value?.user.username === username &&
         emailValid?.value?.email === email;
 
-      return validatedUser ? { username, password } : null;
+      return validatedUser
+        ? { username, password: decryptData(password) }
+        : null;
     }
     return null;
   }
@@ -315,7 +324,11 @@ export async function createNewUser({
     return null;
   }
 
-  const savedUser = await storeUserCredentials(body, username, password);
+  const savedUser = await storeUserCredentials(
+    body,
+    username,
+    encryptData(password),
+  );
 
   if (!savedUser) {
     return null;

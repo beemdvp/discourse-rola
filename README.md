@@ -26,6 +26,8 @@ This endpoint verifies the signed challenge provided by the client. It checks th
 - **Request Body**: Expects a JSON object containing:
   - `proofs`: An array of signed challenges.
   - `personaData`: An array of persona data fields.
+  - `persona`: An object of identity address and label which is used as the username
+  - `migrationAuth`: An optional object used to determine whether the use is trying to migrate their user to use Radix connect to handle their passwords
 
 - **Response**: Returns a JSON object indicating whether the verification was successful and includes user credentials if valid.
 
@@ -47,6 +49,7 @@ The following environment variables are required to run the container:
 - **APPLICATION_NAME**: The name of the application.
 - **APPLICATION_VERSION**: The version of the application.
 - **NETWORK_ID**: The network ID of the Radix network.
+- **SECRET_KEY**: This is used to encrypt passwords generated
 
 ```
 docker run -d \
@@ -59,6 +62,7 @@ docker run -d \
   -e APPLICATION_NAME='your_application_name' \
   -e APPLICATION_VERSION='your_application_version' \
   -e NETWORK_ID='1'\ # 1 for mainnet, 2 for stokenet
+  -e SECRET_KEY='foobar'
   -p 4000:4000 \
   beemdvpp/discourse-rola
 ```

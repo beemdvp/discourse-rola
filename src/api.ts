@@ -60,6 +60,8 @@ export async function getDiscourseUserByUsername({
       return r.json() as Promise<{
         user_badges: unknown[];
         user: Record<string, unknown>;
+        errors?: string[];
+        error_type: string;
       }>;
     })
     .catch(() => {
@@ -82,6 +84,8 @@ export async function getDiscourseEmailByUsername({
     .then((r) => {
       return r.json() as Promise<{
         email: string;
+        errors?: string[];
+        error_type: string;
       }>;
     })
     .catch(() => {

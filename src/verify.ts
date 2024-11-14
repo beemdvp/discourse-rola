@@ -110,6 +110,8 @@ export const handleVerify = async (req: Request) => {
     )
   ).some((v) => v);
 
+  console.log("is challenge valid", isChallengeValid);
+
   if (!isChallengeValid)
     return new Response(null, { status: 400, headers: { ...corsHeaders() } });
 
@@ -118,6 +120,8 @@ export const handleVerify = async (req: Request) => {
       verifySignedChallenge(signedChallenge),
     ),
   );
+
+  console.log("is verify signed challenge valid", result.isOk());
 
   if (result.isErr()) {
     console.log("Error verifying challenges", result.error);
@@ -133,7 +137,7 @@ export const handleVerify = async (req: Request) => {
       body.migrationAuth,
     );
 
-    console.log("migration auth success");
+    console.log("is migration authorized", isMigrationAuthorized);
 
     if (!isMigrationAuthorized) {
       return new Response(null, {
@@ -143,6 +147,8 @@ export const handleVerify = async (req: Request) => {
     }
 
     const user = await getDiscourseUserById({ id: body.migrationAuth.id });
+
+    console.log("user found by id", !!user);
 
     if (!user) {
       return new Response(null, {
@@ -154,6 +160,8 @@ export const handleVerify = async (req: Request) => {
     const password = secureRandom(16);
 
     const username = body.persona.label.replace(/"/g, "");
+
+    console.log("username valid", user.username === username);
 
     if (user.username != username) {
       return new Response(null, {
@@ -168,6 +176,8 @@ export const handleVerify = async (req: Request) => {
       attributes: ["password", "username"],
       where: { identity_address: body.proofs[0].address },
     });
+
+    console.log("user found by address", !!userFound);
 
     if (userFound instanceof RolaUser) {
       const { username, password } = userFound.dataValues;
@@ -191,6 +201,8 @@ export const handleVerify = async (req: Request) => {
       username,
       encryptData(password),
     );
+
+    console.log("saved user", !!savedUser);
 
     if (!savedUser) {
       return new Response(null, {
@@ -218,7 +230,11 @@ export const handleVerify = async (req: Request) => {
     where: { identity_address: body.proofs[0].address },
   });
 
+  console.log("is user found", !!userFound);
+
   const usernameAndPassword = await getOrCreateUser(body, userFound);
+
+  console.log("user retrieved or created", !!usernameAndPassword);
 
   if (!usernameAndPassword) {
     return new Response(null, {
@@ -228,6 +244,8 @@ export const handleVerify = async (req: Request) => {
   }
 
   const { username, password } = usernameAndPassword;
+
+  console.log("success");
 
   return new Response(
     JSON.stringify({

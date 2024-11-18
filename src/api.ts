@@ -64,7 +64,8 @@ export async function getDiscourseUserByUsername({
         error_type: string;
       }>;
     })
-    .catch(() => {
+    .catch((e) => {
+      console.log("Failed to fetch user by username", e);
       return null;
     });
 }
@@ -88,7 +89,8 @@ export async function getDiscourseEmailByUsername({
         error_type: string;
       }>;
     })
-    .catch(() => {
+    .catch((e) => {
+      console.log("Failed to fetch email by username", e);
       return null;
     });
 }

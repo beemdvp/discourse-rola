@@ -339,6 +339,7 @@ export async function createNewUser({
   });
 
   if (!createdUserResponse || !createdUserResponse.success) {
+    console.log("failed to create user in discourse", createdUserResponse);
     return null;
   }
 
@@ -349,6 +350,7 @@ export async function createNewUser({
   );
 
   if (!savedUser) {
+    console.log("failed to save user credentials", savedUser);
     return null;
   }
 

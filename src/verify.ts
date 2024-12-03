@@ -62,25 +62,33 @@ const { verifySignedChallenge } = Rola({
 
 export async function isRequestAuthorized(
   request: Request,
-  migrationAuth: { id: string; clientId: string; csrfToken: string },
+  migrationAuth: {
+    id: string;
+    clientId: string;
+    csrfToken: string;
+    username: string;
+  },
 ) {
-  return fetch(`${process.env.DISCOURSE_API_URL}/presence/update`, {
-    headers: {
-      accept: "*/*",
-      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "discourse-logged-in": "true",
-      "discourse-present": "true",
-      "x-csrf-token": migrationAuth.csrfToken,
-      "x-requested-with": "XMLHttpRequest",
-      cookie: request.headers.get("cookie") || "",
+  return fetch(
+    `${process.env.DISCOURSE_API_URL}/u/${migrationAuth.username}/preferences/account`,
+    {
+      headers: {
+        accept: "*/*",
+        "discourse-logged-in": "true",
+        "discourse-present": "true",
+        "x-csrf-token": migrationAuth.csrfToken,
+        "x-requested-with": "XMLHttpRequest",
+        cookie: request.headers.get("cookie") || "",
+      },
+      method: "GET",
     },
-    body: `client_id=${migrationAuth.clientId}&present_channels%5B%5D=%2Fchat-user%2Fcore%2F${migrationAuth.id}`,
-    method: "POST",
-  })
-    .then((r) => r.json())
-    .then((r) => r[`/chat-user/core/${migrationAuth.id}`])
+  )
+    .then((r) => {
+      console.log("verify authorized request", r);
+      return r.ok;
+    })
     .catch((e) => {
-      console.log("verify migration failed ", e);
+      console.log("verify authorized request failed ", e);
       return false;
     });
 }
@@ -95,6 +103,7 @@ export const handleVerify = async (req: Request) => {
       clientId: string;
       csrfToken: string;
       token: string;
+      username: string;
     };
   };
 
